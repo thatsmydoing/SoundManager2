@@ -125,6 +125,7 @@ package {
           ExternalInterface.addCallback('_createSound', _createSound);
           ExternalInterface.addCallback('_destroySound', _destroySound);
           ExternalInterface.addCallback('_setAutoPlay', _setAutoPlay);
+          ExternalInterface.addCallback('_getSpectrum', _getSpectrum);
         } catch(e: Error) {
           flashDebug('Fatal: ExternalInterface error: ' + e.toString());
         }
@@ -181,6 +182,14 @@ package {
       if (s) {
         s.setAutoPlay(autoPlay);
       }
+    }
+
+    public function _getSpectrum(sID:String, pos:int) : String {
+      var s: SoundManager2_SMSound_AS3 = soundObjects[sID];
+      if (s) {
+        return s.getSpectrum(pos).join(',');
+      }
+      return "";
     }
 
     // methods
@@ -509,6 +518,7 @@ package {
       checkSoundProgress(soundObjects[oSound.sID]); // ensure progress stats are up-to-date
       if (!oSound.useNetstream) { // FLV must also have metadata
         oSound.loaded = true;
+        oSound.preprocess();
         // force duration update (doesn't seem to be always accurate)
         ExternalInterface.call(baseJSObject + "['" + oSound.sID + "']._whileloading", oSound.bytesLoaded, oSound.bytesTotal, oSound.length || oSound.duration);
         // TODO: Determine if loaded or failed - bSuccess?

@@ -21,9 +21,11 @@ package {
   import flash.media.SoundMixer;
   import flash.net.URLRequest;
   import flash.utils.ByteArray;
+  import flash.utils.Endian;
   import flash.utils.getTimer;
   import flash.net.NetConnection;
   import flash.net.NetStream;
+  import ru.inspirit.analysis.*;
 
   public class SoundManager2_SMSound_AS3 extends Sound {
 
@@ -85,6 +87,11 @@ package {
 
     public var checkPolicyFile:Boolean = false;
 
+    public var fft: FFT;
+    public var fftHelp: FFTSpectrumAnalyzer;
+    public var buffer: ByteArray;
+    public var spectrumCache: Array = [];
+
     public function SoundManager2_SMSound_AS3(oSoundManager: SoundManager2_AS3, sIDArg: String = null, sURLArg: String = null, usePeakData: Boolean = false, useWaveformData: Boolean = false, useEQData: Boolean = false, useNetstreamArg: Boolean = false, netStreamBufferTime: Number = 1, serverUrl: String = null, duration: Number = 0, autoPlay: Boolean = false, useEvents: Boolean = false, autoLoad: Boolean = false, checkPolicyFile: Boolean = false) {
       this.sm = oSoundManager;
       this.sID = sIDArg;
@@ -109,6 +116,13 @@ package {
         this.bufferTime = netStreamBufferTime;
       }
       this.checkPolicyFile = checkPolicyFile;
+
+      this.fft = new FFT();
+      this.fft.init(2048, 1);
+      this.fftHelp = new FFTSpectrumAnalyzer(fft, 44100);
+      this.fftHelp.initLogarithmicAverages(22, 1);
+      this.buffer = new ByteArray();
+      this.buffer.endian = Endian.LITTLE_ENDIAN;
 
       writeDebug('SoundManager2_SMSound_AS3: Got duration: '+duration+', autoPlay: '+autoPlay);
 
@@ -274,7 +288,7 @@ package {
       // null this out for the duration of this object's existence.
       // it may be called multiple times.
       // this.cc.setCaption = function(infoObject: Object) : void {}
-    
+
       // writeDebug('Caption\n'+infoObject['dynamicMetadata']);
       // writeDebug('firing _oncaptiondata for '+this.sID);
 
@@ -289,6 +303,40 @@ package {
       for (var i: int = 0, j: int = this.waveformData.length / 4; i < j; i++) { // get all 512 values (256 per channel)
         this.waveformDataArray.push(int(this.waveformData.readFloat() * 1000) / 1000);
       }
+    }
+
+    public function preprocess() : void {
+      var read:int;
+      var peakSpectrum: Number = 0;
+      while(true) {
+        read = extract(this.buffer, 2048);
+        if(read == 0) break;
+        this.buffer.position = 0;
+        this.fft.setStereoRAWDataByteArray(this.buffer);
+        this.fft.forwardFFT();
+        var eqDataArray:Array = [];
+        var spectr_data:ByteArray = this.fftHelp.analyzeSpectrum();
+        var spectrLength:int = spectr_data.length >> 2;
+        for (var i: int = 0; i < spectrLength; i++) {
+          var data: Number = int(spectr_data.readFloat() * 1000) / 1000;
+          peakSpectrum = Math.max(data, peakSpectrum);
+          eqDataArray.push(data);
+        }
+        this.spectrumCache.push(eqDataArray);
+      }
+      if(peakSpectrum > 0) {
+        for(var k : int = 0; k < this.spectrumCache.length; ++k) {
+          for(var j : int = 0; j < this.spectrumCache[k].length; ++j) {
+            this.spectrumCache[k][j] /= peakSpectrum;
+          }
+        }
+      }
+    }
+
+    public function getSpectrum(pos: int) : Array {
+      if(this.lastValues.duration == 0) return [];
+      var index : int = this.spectrumCache.length * pos / this.lastValues.duration;
+      return this.spectrumCache[index];
     }
 
     public function getEQData() : void {
